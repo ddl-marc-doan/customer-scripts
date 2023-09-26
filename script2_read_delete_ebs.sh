@@ -8,15 +8,16 @@
 dry_run=false
 if [[ "$*" == *"--dry-run"* ]]; then
   dry_run=true
-  echo "\n##########################\n##########################\nRunning in dry-run mode...\n##########################\n##########################"
+  echo -e "\n##########################\n##########################\nRunning in dry-run mode...\n##########################\n##########################"
 fi
+
 
 ### ### ### ### ### ### ##
 ### Required Variables ###
 ### ### ### ### ### ### ##
 
 namespace="domino-compute"
-KubernetesCluster="stevel19523"
+cluster_name="marcd-fm-istio"
 # tag_key="KubernetesCluster"
 tag_key="AssetID"
 # tag_value="stevel19523"
@@ -58,7 +59,7 @@ fi
 if [ "$dry_run" = false ]; then
     # Line to exclude in dry-run mode
     # This line will be executed when not in dry-run mode
-    echo "\n#######################\n#######################\nWARNING: Script is LIVE\n#######################\n#######################"
+    echo -e "\n#######################\n#######################\nWARNING: Script is LIVE\n#######################\n#######################"
 
     # Display the confirmation prompt
     echo "ARE YOU SURE? (yes/no)"
@@ -68,7 +69,7 @@ if [ "$dry_run" = false ]; then
 
     # Check if the user entered "yes" to confirm
     if [ "$response" == "yes" ]; then
-        echo "\nWarning: Dry run NOT initiated - DELETION may take place\nThe script will start in 3 seconds" 
+        echo -e "\nWarning: Dry run NOT initiated - DELETION may take place\nThe script will start in 3 seconds" 
         sleep 3
     else
         echo "You did not confirm. Exiting program..."
@@ -80,9 +81,13 @@ fi
 
 # Look for available volumes in AWS/EBS (unattached / not bound)
 ebs_values=$(aws ec2 describe-volumes \
-    --filters "Name=status,Values=available" "Name=tag:$tag_key,Values=$tag_value" "Name=tag:kubernetes.io/created-for/pvc/namespace,Values=domino-compute" \
+    --filters "Name=status,Values=available" "Name=tag:kubernetes.io/cluster/$cluster_name,Values=owned" "Name=tag:kubernetes.io/created-for/pvc/namespace,Values=$namespace" \
     --query "Volumes[*].Tags[?Key=='kubernetes.io/created-for/pvc/name'].Value" \
     --output json)
+# ebs_values=$(aws ec2 describe-volumes \
+#     --filters "Name=status,Values=available" "Name=tag:$tag_key,Values=$tag_value" "Name=tag:kubernetes.io/created-for/pvc/namespace,Values=domino-compute" \
+#     --query "Volumes[*].Tags[?Key=='kubernetes.io/created-for/pvc/name'].Value" \
+#     --output json)
 
 # Create ebs_values_array from the command output
 # ebs_values_array=($(echo "$ebs_values" | jq -r '.[] | .[]'))
@@ -90,9 +95,9 @@ ebs_values_array=($(echo "$ebs_values" | awk -F'"' '/./ {print $2}'))
 
 
 # Use "${ebs_values_array[@]}" to print all elements of the array
-echo "\n\nEBS PVCs that are AVAILABLE in AWS: \n\n${ebs_values_array[@]}"
-echo "\n\nKUBECTL PVCs that have a claim to a PV in-cluster: \n\n${pvc_names_array}"
-echo "\n\n\n"
+echo -e "\n\nEBS PVCs associated with cluster $cluster_name that are AVAILABLE in AWS: \n\n${ebs_values_array[@]}"
+echo -e "\n\nKUBECTL PVCs that have a claim to a PV in-cluster: \n\n${pvc_names_array}"
+echo -e "\n\n\n"
 
 # Split the space-separated string into an array
 IFS=$'\n' read -d '' -ra pvc_names_array <<< "$pvc_names_array"
@@ -131,30 +136,32 @@ for element in "${elements_not_in_pvc_names[@]}"; do
     if [[ $element =~ $regex_pattern ]]; then
         # echo "Element '$element' matches the regex pattern."
         ebs_volume_to_be_deleted=$(aws ec2 describe-volumes \
-            --filters "Name=status,Values=available" "Name=tag:KubernetesCluster,Values=$KubernetesCluster" "Name=tag:kubernetes.io/created-for/pvc/namespace,Values=domino-compute" \
+            --filters "Name=status,Values=available" "Name=tag:KubernetesCluster,Values=$cluster_name" "Name=tag:kubernetes.io/created-for/pvc/namespace,Values=domino-compute" \
             --query "Volumes[?Tags[?Key=='kubernetes.io/created-for/pvc/name' && Value=='$element']].VolumeId" \
             --output json | grep -o 'vol-[^"]*' | tr -d '[]"')
 
         ebs_creation_time=$(aws ec2 describe-volumes \
-            --filters "Name=status,Values=available" "Name=tag:KubernetesCluster,Values=$KubernetesCluster" "Name=tag:kubernetes.io/created-for/pvc/namespace,Values=domino-compute" \
+            --filters "Name=status,Values=available" "Name=tag:KubernetesCluster,Values=$cluster_name" "Name=tag:kubernetes.io/created-for/pvc/namespace,Values=domino-compute" \
             --query "Volumes[?Tags[?Key=='kubernetes.io/created-for/pvc/name' && Value=='$element']].[CreateTime]" \
             --output text | tr -d ' [] ')
 
         ebs_size_tag=$(aws ec2 describe-volumes \
-            --filters "Name=status,Values=available" "Name=tag:KubernetesCluster,Values=$KubernetesCluster" "Name=tag:kubernetes.io/created-for/pvc/namespace,Values=domino-compute" \
+            --filters "Name=status,Values=available" "Name=tag:KubernetesCluster,Values=$cluster_name" "Name=tag:kubernetes.io/created-for/pvc/namespace,Values=domino-compute" \
             --query "Volumes[?Tags[?Key=='kubernetes.io/created-for/pvc/name' && Value=='$element']].[Size]" \
             --output text | tr -d '[] ')
 
 
-        if [ "$dry_run" = true ]; then
+        if [ "$dry_run" == true ]; then
         # Line to exclude in dry-run mode
         # This line will be executed when not in dry-run mode
 
-            echo "\n*******\nDRY RUN\n*******\n\nEBS Volume that will be deleted with dry-run deactivated:\n"
-            echo "Volume ID: $ebs_volume_to_be_deleted"
-            echo "PVC Name: $element"
-            echo "Volume creation time: $ebs_creation_time"
-            echo "Disk Size: $ebs_size_tag"
+            echo -e "\n*******\nDRY RUN\n*******\n\nEBS Volumes that will be deleted with dry-run deactivated:\n"
+            echo "Volume ID|PVC Name|Volume Creation time|Disk Size (GB)"
+            echo -e "$ebs_volume_to_be_deleted|$element|$ebs_creation_time|$ebs_size_tag\n"
+            # echo "Volume ID: $ebs_volume_to_be_deleted"
+            # echo "PVC Name: $element"
+            # echo "Volume creation time: $ebs_creation_time"
+            # echo "Disk Size: $ebs_size_tag"
             
         fi
 
