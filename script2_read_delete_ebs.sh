@@ -8,7 +8,7 @@
 dry_run=false
 if [[ "$*" == *"--dry-run"* ]]; then
   dry_run=true
-  echo -e "\n##########################\n##########################\nRunning in dry-run mode...\n##########################\n##########################"
+  echo -e "\n##########################\n##########################\nRunning in dry-run mode...\n##########################\n##########################\n"
 fi
 
 
@@ -22,6 +22,7 @@ cluster_name="marcd-fm-istio"
 tag_key="AssetID"
 # tag_value="stevel19523"
 tag_value="MSR03632"
+volume_before_time="2023-06-01"
 
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
@@ -39,10 +40,11 @@ if [ -f "$input_file" ]; then
   # Read the file line by line and store the names in an array
   pvc_names_array=()
   while IFS= read -r line; do
-    pvc_names_array3+=("$line")
+    pvc_names_array+=("$line")
   done < "$input_file"
 
   # Print the array to verify the names have been loaded
+  echo "Found the following PVCs in $input_file:"
   for name in "${pvc_names_array[@]}"; do
     echo "$name"
   done
@@ -82,7 +84,7 @@ fi
 # Look for available volumes in AWS/EBS (unattached / not bound)
 ebs_values=$(aws ec2 describe-volumes \
     --filters "Name=status,Values=available" "Name=tag:kubernetes.io/cluster/$cluster_name,Values=owned" "Name=tag:kubernetes.io/created-for/pvc/namespace,Values=$namespace" \
-    --query "Volumes[*].Tags[?Key=='kubernetes.io/created-for/pvc/name'].Value" \
+    --query "Volumes[?(CreateTime < '$volume_before_time')]|[].Tags[?Key=='kubernetes.io/created-for/pvc/name'].Value" \
     --output json)
 # ebs_values=$(aws ec2 describe-volumes \
 #     --filters "Name=status,Values=available" "Name=tag:$tag_key,Values=$tag_value" "Name=tag:kubernetes.io/created-for/pvc/namespace,Values=domino-compute" \
@@ -96,7 +98,7 @@ ebs_values_array=($(echo "$ebs_values" | awk -F'"' '/./ {print $2}'))
 
 # Use "${ebs_values_array[@]}" to print all elements of the array
 echo -e "\n\nEBS PVCs associated with cluster $cluster_name that are AVAILABLE in AWS: \n\n${ebs_values_array[@]}"
-echo -e "\n\nKUBECTL PVCs that have a claim to a PV in-cluster: \n\n${pvc_names_array}"
+echo -e "\n\nKUBECTL PVCs that have a claim to a PV in-cluster: \n\n${pvc_names_array[@]}"
 echo -e "\n\n\n"
 
 # Split the space-separated string into an array
@@ -128,7 +130,7 @@ done
 # Define the regex pattern
 regex_pattern="^[A-Za-z0-9]{24}-[A-Za-z0-9]{5}$"
 
-echo="\n\n\n"
+echo -e "\n\n\n"
 
 # Iterate through the elements in elements_not_in_pvc_names
 for element in "${elements_not_in_pvc_names[@]}"; do
