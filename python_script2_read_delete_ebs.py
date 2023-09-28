@@ -6,10 +6,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--dry-run',action='store_true')
 parser.add_argument('--cluster-name','-c',required=True)
 parser.add_argument('--namespace','-n', default='domino-compute')
-parser.add_argument('--additional-tags','-t',help='Additional tags to check, format: "key1=value1,key2=value2"')
+parser.add_argument('--tags','-t',help='Additional tags to check, format: "key1=value1,key2=value2"')
 parser.add_argument('--pvc-file','-f',default='pvc_names_output.txt')
 parser.add_argument('--remove-before-date','-r',default='2023-06-01',help='Remove volumes created before date')
 parser.add_argument('--check-cloudtrail',action='store_true')
+parser.add_argument('--verbose','-v',action='store_true')
+parser.add_argument('--region',default='us-east-1')
 
 args = parser.parse_args()
 cluster = args.cluster_name
@@ -18,13 +20,13 @@ pvc_file = args.pvc_file
 addl_tags = []
 volume_older_than_date = datetime.astimezone(datetime.strptime(args.remove_before_date,'%Y-%m-%d'))
 
-if args.additional_tags:
-    tag_list = args.additional_tags.split(',')
+if args.tags:
+    tag_list = args.tags.split(',')
     addl_tags = [{'Name':f'tag:{tag.split("=")[0]}','Values':[tag.split('=')[1]]} for tag in tag_list]
 
-ec2 = boto3.client('ec2')
+ec2 = boto3.client('ec2',region_name=args.region)
 if args.check_cloudtrail:
-    cloudtrail = boto3.client('cloudtrail')
+    cloudtrail = boto3.client('cloudtrail',region_name=args.region)
 
 if not os.path.isfile(pvc_file):
     print(f'Could not find file {pvc_file}. Check that it exists at the path provided and that you have permissions to read it.')
@@ -47,34 +49,39 @@ ebs_list = ec2.describe_volumes(
         {'Name':'tag:kubernetes.io/created-for/pvc/namespace','Values':[ns]},
     ] + addl_tags
 )['Volumes']
-ebs_list = [vol for vol in ebs_list if vol['CreateTime'] < volume_older_than_date]
 
-print(f'Found the following base volumes for cluster {cluster}, older than {volume_older_than_date}:')
-print_vol_list(ebs_list)
+if args.verbose:
+    pvc_list = [vol for vol in ebs_list if vol['Tags']['kubernetes.io/created-for/pvc/name'] in source_pvc_list]
+    ebs_list = [vol for vol in ebs_list if vol['CreateTime'] < volume_older_than_date]
+    print(f'Found the following base volumes for cluster {cluster}, older than {volume_older_than_date}:')
+    print('============================\n')
+    print_vol_list(ebs_list)
+    print('PVC-associated volumes from original list:')
+    print_vol_list(pvc_list)
+    print('============================\n')
 
-print('Removing PVC-associated volumes from original list:')
-for vol in ebs_list:
-    pvc = jmespath.search("Tags[?Key=='kubernetes.io/created-for/pvc/name'].Value",vol)[0]
-    if pvc in source_pvc_list:
-        ebs_list.remove(vol)
+ebs_list = [vol for vol in ebs_list if vol['CreateTime'] < volume_older_than_date and vol['Tags']['kubernetes.io/created-for/pvc/name'] not in source_pvc_list]
 
 if args.check_cloudtrail:
-    print('Checking for any volume attach/detach activity in CloudTrail...')
+    if args.verbose:
+        print('Checking for any volume attach/detach activity in CloudTrail...')
     for vol in ebs_list:
         now = datetime.now()
         ct_events = cloudtrail.lookup_events(
             LookupAttributes = [
                 {'AttributeKey': 'ResourceName','AttributeValue': vol}
             ],
-            StartTime=datetime('2015','1','1'),
+            StartTime=datetime(2015,1,1),
             EndTime=now
         )['Events']
         ct_events = [event for event in ct_events if event['EventName'] == 'AttachVolume' or event['EventName'] == 'DetachVolume' ]
         if len(ct_events) > 0:
-            print(f"Found event data for volume {vol}:")
+            if args.verbose:
+                print(f"Found event data for volume {vol}:")
             for event in ct_events:
-                print(f"Event: Volume ID {vol}, Action: {event['EventName']}, Date: {datetime.strftime(event['EventTime'],'%Y-%m-%d %H:%M:%S')} ")
-                print(f"Removing volume {vol} from safe-to-delete list...")
+                if args.verbose:
+                    print(f"Event: Volume ID {vol}, Action: {event['EventName']}, Date: {datetime.strftime(event['EventTime'],'%Y-%m-%d %H:%M:%S')} ")
+                    print(f"Removing volume {vol} from safe-to-delete list...")
                 ebs_list.remove(vol)
 
 print("Volumes not associated with any PVC (safe to delete):")
@@ -95,4 +102,3 @@ if not args.dry_run:
             vol_id_to_delete = vol['VolumeId']
             resp = ec2.delete_volume(vol_id_to_delete,DryRun=True)
             print(json.dumps(resp))
-
