@@ -9,6 +9,7 @@ parser.add_argument('--namespace','-n', default='domino-compute')
 parser.add_argument('--additional-tags','-t',help='Additional tags to check, format: "key1=value1,key2=value2"')
 parser.add_argument('--pvc-file','-f',default='pvc_names_output.txt')
 parser.add_argument('--remove-before-date','-r',default='2023-06-01',help='Remove volumes created before date')
+parser.add_argument('--check-cloudtrail',action='store_true')
 
 args = parser.parse_args()
 cluster = args.cluster_name
@@ -22,6 +23,8 @@ if args.additional_tags:
     addl_tags = [{'Name':f'tag:{tag.split("=")[0]}','Values':[tag.split('=')[1]]} for tag in tag_list]
 
 ec2 = boto3.client('ec2')
+if args.check_cloudtrail:
+    cloudtrail = boto3.client('cloudtrail')
 
 if not os.path.isfile(pvc_file):
     print(f'Could not find file {pvc_file}. Check that it exists at the path provided and that you have permissions to read it.')
@@ -54,6 +57,25 @@ for vol in ebs_list:
     pvc = jmespath.search("Tags[?Key=='kubernetes.io/created-for/pvc/name'].Value",vol)[0]
     if pvc in source_pvc_list:
         ebs_list.remove(vol)
+
+if args.check_cloudtrail:
+    print('Checking for any volume attach/detach activity in CloudTrail...')
+    for vol in ebs_list:
+        now = datetime.now()
+        ct_events = cloudtrail.lookup_events(
+            LookupAttributes = [
+                {'AttributeKey': 'ResourceName','AttributeValue': vol}
+            ],
+            StartTime=datetime('2015','1','1'),
+            EndTime=now
+        )['Events']
+        ct_events = [event for event in ct_events if event['EventName'] == 'AttachVolume' or event['EventName'] == 'DetachVolume' ]
+        if len(ct_events) > 0:
+            print(f"Found event data for volume {vol}:")
+            for event in ct_events:
+                print(f"Event: Volume ID {vol}, Action: {event['EventName']}, Date: {datetime.strftime(event['EventTime'],'%Y-%m-%d %H:%M:%S')} ")
+                print(f"Removing volume {vol} from safe-to-delete list...")
+                ebs_list.remove(vol)
 
 print("Volumes not associated with any PVC (safe to delete):")
 print_vol_list(ebs_list)

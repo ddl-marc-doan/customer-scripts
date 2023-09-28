@@ -170,7 +170,7 @@ for element in "${elements_not_in_pvc_names[@]}"; do
         ### DELETE VOLUME with --dry-run option
 
         # Conditional check to exclude a specific line when in dry-run mode
-        if [ "$dry_run" = false ]; then
+        if [ "$dry_run" == false ]; then
         # Line to exclude in dry-run mode
         # This line will be executed when not in dry-run mode
    
