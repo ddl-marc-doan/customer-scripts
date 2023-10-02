@@ -51,16 +51,25 @@ ebs_list = ec2.describe_volumes(
 )['Volumes']
 
 if args.verbose:
-    pvc_list_print = [vol for vol in ebs_list if vol['Tags']['kubernetes.io/created-for/pvc/name'] in source_pvc_list]
+    pvc_list_print = []
+    for vol in ebs_list:
+        pvc = jmespath.search("Tags[?Key=='kubernetes.io/created-for/pvc/name'].Value",vol)[0]
+        if pvc in source_pvc_list:
+            pvc_list_print.append(vol)
     ebs_list_print = [vol for vol in ebs_list if vol['CreateTime'] < volume_older_than_date]
     print(f'Found the following base volumes for cluster {cluster}, older than {volume_older_than_date}:')
-    print('============================\n')
+    print('============================')
     print_vol_list(ebs_list_print)
+    print('============================')
     print('PVC-associated volumes from original list:')
     print_vol_list(pvc_list_print)
-    print('============================\n')
+    print('============================')
 
-ebs_list = [vol for vol in ebs_list if vol['CreateTime'] < volume_older_than_date and vol['Tags']['kubernetes.io/created-for/pvc/name'] not in source_pvc_list]
+ebs_list = [vol for vol in ebs_list if vol['CreateTime'] < volume_older_than_date]
+for vol in ebs_list:
+    pvc = jmespath.search("Tags[?Key=='kubernetes.io/created-for/pvc/name'].Value",vol)[0]
+    if pvc in source_pvc_list:
+        ebs_list.remove(vol)
 
 if args.check_cloudtrail:
     if args.verbose:
@@ -100,5 +109,5 @@ if not args.dry_run:
         time.sleep(10)
         for vol in ebs_list:
             vol_id_to_delete = vol['VolumeId']
-            resp = ec2.delete_volume(vol_id_to_delete,DryRun=True)
+            resp = ec2.delete_volume(vol_id_to_delete)
             print(json.dumps(resp))
