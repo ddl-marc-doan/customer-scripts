@@ -51,13 +51,13 @@ ebs_list = ec2.describe_volumes(
 )['Volumes']
 
 if args.verbose:
-    pvc_list = [vol for vol in ebs_list if vol['Tags']['kubernetes.io/created-for/pvc/name'] in source_pvc_list]
-    ebs_list = [vol for vol in ebs_list if vol['CreateTime'] < volume_older_than_date]
+    pvc_list_print = [vol for vol in ebs_list if vol['Tags']['kubernetes.io/created-for/pvc/name'] in source_pvc_list]
+    ebs_list_print = [vol for vol in ebs_list if vol['CreateTime'] < volume_older_than_date]
     print(f'Found the following base volumes for cluster {cluster}, older than {volume_older_than_date}:')
     print('============================\n')
-    print_vol_list(ebs_list)
+    print_vol_list(ebs_list_print)
     print('PVC-associated volumes from original list:')
-    print_vol_list(pvc_list)
+    print_vol_list(pvc_list_print)
     print('============================\n')
 
 ebs_list = [vol for vol in ebs_list if vol['CreateTime'] < volume_older_than_date and vol['Tags']['kubernetes.io/created-for/pvc/name'] not in source_pvc_list]
