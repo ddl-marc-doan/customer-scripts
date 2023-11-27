@@ -12,7 +12,7 @@ parser.add_argument('--region','-r',default='us-east-1')
 args = parser.parse_args()
 name_pattern = args.repo_pattern
 verbose = args.verbose
-ecr = boto3.client('ecr')
+ecr = boto3.client('ecr',region_name=args.region)
 
 repo_list_api = ecr.describe_repositories()['repositories']
 repo_list = [repo for repo in repo_list_api if name_pattern in repo['repositoryName']]
