@@ -13,9 +13,12 @@ args = parser.parse_args()
 name_pattern = args.repo_pattern
 verbose = args.verbose
 ecr = boto3.client('ecr',region_name=args.region)
+paginator = ecr.get_paginator('describe_repositories')
+all_pages = paginator.paginate()
+repo_list = []
+for page in all_pages:
+    repo_list += [repo for repo in page['repositories'] if name_pattern in repo['repositoryName']]
 
-repo_list_api = ecr.describe_repositories()['repositories']
-repo_list = [repo for repo in repo_list_api if name_pattern in repo['repositoryName']]
 if verbose:
     print(f'Repos matching "{name_pattern}": {[x["repositoryName"] for x in repo_list]}')
 
