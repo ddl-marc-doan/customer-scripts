@@ -42,13 +42,13 @@ def print_vol_list(vols:[]):
         print(f'Name: {vol_name}, VolumeID: {vol["VolumeId"]}, Size: {vol["Size"]}GB, Creation Date: {vol["CreateTime"].isoformat()}')
 
 # Get the list of volumes matching the cluster, namespace, and any additional tags that we want to provide.
-ebs_list = ec2.describe_volumes(
-    Filters = [
+paginator = ec2.get_paginator('describe_volumes')
+paginator_params = [
         {'Name':'status','Values':['available']},
         {'Name':f'tag:kubernetes.io/cluster/{cluster}','Values':['owned']},
         {'Name':'tag:kubernetes.io/created-for/pvc/namespace','Values':[ns]},
     ] + addl_tags
-)['Volumes']
+ebs_list = [page['Volumes'] for page in paginator.paginate(Filters=paginator_params)][0]
 
 if args.verbose:
     pvc_list_print = []
